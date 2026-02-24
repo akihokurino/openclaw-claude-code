@@ -44,3 +44,18 @@ services:
     entrypoint: ["node", "/app/dist/index.js"]
     profiles:
       - cli
+
+  claude-code:
+    build: .
+    container_name: claude-code
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./claude-data:/home/node/.claude
+      - ./scripts/claude-entrypoint.sh:/home/node/claude-entrypoint.sh:ro
+    environment:
+      - LANG=ja_JP.UTF-8
+      - LANGUAGE=ja_JP:ja
+    entrypoint: ["/home/node/claude-entrypoint.sh"]
+    profiles:
+      - claude
