@@ -1,0 +1,46 @@
+services:
+  openclaw-gateway:
+    build: .
+    container_name: openclaw-gateway
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./openclaw-data:/home/node/.openclaw
+      - ./claude-data:/home/node/.claude
+    environment:
+      - NODE_ENV=production
+      - OPENCLAW_SKIP_SERVICE_CHECK=true
+      - LANG=ja_JP.UTF-8
+      - LANGUAGE=ja_JP:ja
+    ports:
+      - "18790:18790"
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        rm -rf /home/node/.openclaw/agents/main/sessions/
+        rm -rf /home/node/.claude/projects/*/
+        node /app/dist/index.js gateway
+
+  socat-proxy:
+    image: alpine/socat
+    container_name: openclaw-socat
+    restart: unless-stopped
+    network_mode: "service:openclaw-gateway"
+    command: "TCP-LISTEN:18790,fork,bind=0.0.0.0,reuseaddr TCP:127.0.0.1:18789"
+
+  openclaw-cli:
+    build: .
+    container_name: openclaw-cli
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./openclaw-data:/home/node/.openclaw
+      - ./claude-data:/home/node/.claude
+    environment:
+      - NODE_ENV=production
+      - LANG=ja_JP.UTF-8
+      - LANGUAGE=ja_JP:ja
+    entrypoint: ["node", "/app/dist/index.js"]
+    profiles:
+      - cli
