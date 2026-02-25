@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Claude Code ログのリアルタイム整形表示
+ * Claude Code ログのリアルタイム整形表示（複数セッション対応）
  *
  * 使い方:
  *   node scripts/tail-claude-code-log.js                 (新しいログのみリアルタイム表示)
@@ -24,9 +24,13 @@ const showThinking = !process.argv.includes("--no-thinking");
 // --history or --history=N
 const historyArg = process.argv.find((a) => a.startsWith("--history"));
 const showHistory = !!historyArg;
-const historyLimit = historyArg && historyArg.includes("=")
-  ? parseInt(historyArg.split("=")[1], 10)
-  : 0; // 0 = unlimited
+const historyLimit =
+  historyArg && historyArg.includes("=")
+    ? parseInt(historyArg.split("=")[1], 10)
+    : 0; // 0 = unlimited
+
+// Track watched files to avoid duplicates
+const watchedFiles = new Map(); // filePath -> { position }
 
 // ANSI colors
 const c = {
@@ -45,7 +49,30 @@ const c = {
   bgGreen: "\x1b[42m",
   bgYellow: "\x1b[43m",
   bgMagenta: "\x1b[45m",
+  bgCyan: "\x1b[46m",
 };
+
+// Assign a color to each session for visual distinction
+const sessionColors = [c.cyan, c.green, c.magenta, c.blue, c.yellow];
+const sessionColorMap = new Map();
+let colorIndex = 0;
+
+function getSessionColor(filePath) {
+  if (!sessionColorMap.has(filePath)) {
+    sessionColorMap.set(
+      filePath,
+      sessionColors[colorIndex % sessionColors.length]
+    );
+    colorIndex++;
+  }
+  return sessionColorMap.get(filePath);
+}
+
+function sessionTag(filePath) {
+  const name = path.basename(filePath, ".jsonl").slice(0, 8);
+  const color = getSessionColor(filePath);
+  return `${color}[${name}]${c.reset}`;
+}
 
 function timestamp(ts) {
   if (!ts) return "";
@@ -64,7 +91,7 @@ function truncate(str, max = 200) {
   return oneLine.slice(0, max) + "...";
 }
 
-function formatLine(line) {
+function formatLine(line, filePath) {
   if (!line.trim()) return null;
 
   let data;
@@ -76,11 +103,12 @@ function formatLine(line) {
 
   const lines = [];
   const ts = timestamp(data.timestamp);
+  const tag = filePath ? sessionTag(filePath) : "";
 
   // queue-operation
   if (data.type === "queue-operation") {
     const op = data.operation === "enqueue" ? "ENQUEUE" : "DEQUEUE";
-    lines.push(`${ts} ${c.bgBlue}${c.white} ${op} ${c.reset}`);
+    lines.push(`${ts} ${tag} ${c.bgBlue}${c.white} ${op} ${c.reset}`);
     if (data.content) {
       lines.push(`  ${c.cyan}${truncate(data.content, 120)}${c.reset}`);
     }
@@ -98,7 +126,7 @@ function formatLine(line) {
       const icon = success ? `${c.green}✓` : `${c.red}✗`;
       const name = data.toolUseResult.commandName || "";
       lines.push(
-        `${ts} ${c.bgGreen}${c.white} TOOL RESULT ${c.reset} ${icon} ${name}${c.reset}`
+        `${ts} ${tag} ${c.bgGreen}${c.white} TOOL RESULT ${c.reset} ${icon} ${name}${c.reset}`
       );
       return lines.join("\n");
     }
@@ -106,7 +134,7 @@ function formatLine(line) {
     // skill injection (isMeta)
     if (data.isMeta) {
       lines.push(
-        `${ts} ${c.bgMagenta}${c.white} SKILL ${c.reset} ${c.magenta}スキル内容注入${c.reset}`
+        `${ts} ${tag} ${c.bgMagenta}${c.white} SKILL ${c.reset} ${c.magenta}スキル内容注入${c.reset}`
       );
       return lines.join("\n");
     }
@@ -115,17 +143,17 @@ function formatLine(line) {
     const content = msg.content;
     if (typeof content === "string") {
       lines.push(
-        `${ts} ${c.bgBlue}${c.white} USER ${c.reset} ${c.cyan}${truncate(content, 120)}${c.reset}`
+        `${ts} ${tag} ${c.bgBlue}${c.white} USER ${c.reset} ${c.cyan}${truncate(content, 120)}${c.reset}`
       );
     } else if (Array.isArray(content)) {
       for (const block of content) {
         if (block.type === "text") {
           lines.push(
-            `${ts} ${c.bgBlue}${c.white} USER ${c.reset} ${c.cyan}${truncate(block.text, 120)}${c.reset}`
+            `${ts} ${tag} ${c.bgBlue}${c.white} USER ${c.reset} ${c.cyan}${truncate(block.text, 120)}${c.reset}`
           );
         } else if (block.type === "tool_result") {
           lines.push(
-            `${ts} ${c.bgGreen}${c.white} TOOL RESULT ${c.reset} ${c.dim}(content omitted)${c.reset}`
+            `${ts} ${tag} ${c.bgGreen}${c.white} TOOL RESULT ${c.reset} ${c.dim}(content omitted)${c.reset}`
           );
         }
       }
@@ -143,7 +171,7 @@ function formatLine(line) {
       if (block.type === "thinking" && block.thinking) {
         if (showThinking) {
           lines.push(
-            `${ts} ${c.yellow}💭 THINKING${c.reset} ${c.dim}${truncate(block.thinking, 150)}${c.reset}`
+            `${ts} ${tag} ${c.yellow}💭 THINKING${c.reset} ${c.dim}${truncate(block.thinking, 150)}${c.reset}`
           );
         }
       }
@@ -151,7 +179,7 @@ function formatLine(line) {
       // text output
       if (block.type === "text") {
         lines.push(
-          `${ts} ${c.bgYellow}${c.white} ASSISTANT ${c.reset} ${c.white}${truncate(block.text, 300)}${c.reset}`
+          `${ts} ${tag} ${c.bgYellow}${c.white} ASSISTANT ${c.reset} ${c.white}${truncate(block.text, 300)}${c.reset}`
         );
       }
 
@@ -165,16 +193,21 @@ function formatLine(line) {
           const short = name.replace("mcp__playwright__", "🌐 ");
           detail = input.url || input.selector || input.text || "";
           lines.push(
-            `${ts} ${c.bgMagenta}${c.white} MCP ${c.reset} ${c.magenta}${short}${c.reset} ${c.dim}${truncate(detail, 100)}${c.reset}`
+            `${ts} ${tag} ${c.bgMagenta}${c.white} MCP ${c.reset} ${c.magenta}${short}${c.reset} ${c.dim}${truncate(detail, 100)}${c.reset}`
           );
         } else if (name === "Skill") {
           lines.push(
-            `${ts} ${c.bgMagenta}${c.white} SKILL ${c.reset} ${c.magenta}${input.skill || ""}${c.reset}`
+            `${ts} ${tag} ${c.bgMagenta}${c.white} SKILL ${c.reset} ${c.magenta}${input.skill || ""}${c.reset}`
           );
         } else {
-          detail = input.command || input.pattern || input.file_path || input.url || "";
+          detail =
+            input.command ||
+            input.pattern ||
+            input.file_path ||
+            input.url ||
+            "";
           lines.push(
-            `${ts} ${c.bgGreen}${c.white} TOOL ${c.reset} ${c.green}${name}${c.reset} ${c.dim}${truncate(detail, 100)}${c.reset}`
+            `${ts} ${tag} ${c.bgGreen}${c.white} TOOL ${c.reset} ${c.green}${name}${c.reset} ${c.dim}${truncate(detail, 100)}${c.reset}`
           );
         }
       }
@@ -193,42 +226,52 @@ function formatLine(line) {
   return null;
 }
 
-function findLatestJsonl(dir) {
-  if (!fs.existsSync(dir)) return null;
-  const files = fs
+function getAllJsonlFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs
     .readdirSync(dir)
     .filter((f) => f.endsWith(".jsonl"))
-    .map((f) => ({
-      name: f,
-      path: path.join(dir, f),
-      mtime: fs.statSync(path.join(dir, f)).mtimeMs,
-    }))
-    .sort((a, b) => b.mtime - a.mtime);
-  return files.length > 0 ? files[0].path : null;
+    .map((f) => path.join(dir, f));
 }
 
-function printHistory(filePath) {
-  const content = fs.readFileSync(filePath, "utf8");
-  const lines = content.split("\n");
-  const formatted = [];
+function printHistory(files) {
+  // Collect all entries from all files with timestamps for sorting
+  const allEntries = [];
 
-  for (const line of lines) {
-    const result = formatLine(line);
-    if (result) formatted.push(result);
+  for (const filePath of files) {
+    const content = fs.readFileSync(filePath, "utf8");
+    const lines = content.split("\n");
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const data = JSON.parse(line);
+        const result = formatLine(line, filePath);
+        if (result) {
+          allEntries.push({
+            timestamp: new Date(data.timestamp).getTime(),
+            formatted: result,
+          });
+        }
+      } catch {}
+    }
   }
 
-  // Apply limit (take last N entries)
-  const toShow = historyLimit > 0 ? formatted.slice(-historyLimit) : formatted;
+  // Sort by timestamp
+  allEntries.sort((a, b) => a.timestamp - b.timestamp);
 
-  if (toShow.length < formatted.length) {
+  // Apply limit
+  const toShow =
+    historyLimit > 0 ? allEntries.slice(-historyLimit) : allEntries;
+
+  if (toShow.length < allEntries.length) {
     console.log(
-      `${c.dim}   ... ${formatted.length - toShow.length} 件省略 ...${c.reset}`
+      `${c.dim}   ... ${allEntries.length - toShow.length} 件省略 ...${c.reset}`
     );
     console.log(separator());
   }
 
   for (const entry of toShow) {
-    console.log(entry);
+    console.log(entry.formatted);
     console.log(separator());
   }
 
@@ -239,28 +282,33 @@ function printHistory(filePath) {
 }
 
 function tailFile(filePath) {
-  console.log(`${c.bold}${c.cyan}📋 Watching: ${filePath}${c.reset}`);
+  if (watchedFiles.has(filePath)) return;
+
+  const stats = fs.statSync(filePath);
+  const position = stats.size;
+  watchedFiles.set(filePath, { position });
+
+  const name = path.basename(filePath, ".jsonl").slice(0, 8);
+  const color = getSessionColor(filePath);
   console.log(
-    `${c.dim}   オプション: --history[=N] --no-thinking${c.reset}`
+    `${c.bold}${color}📋 Watching: ${name}...${c.reset} ${c.dim}${filePath}${c.reset}`
   );
   console.log(separator());
 
-  // Show history if requested
-  if (showHistory) {
-    printHistory(filePath);
-  }
-
-  let position = 0;
-  const stats = fs.statSync(filePath);
-  // Start from current end of file (only show new entries)
-  position = stats.size;
-
   function readNew() {
-    const stats = fs.statSync(filePath);
-    if (stats.size <= position) return;
+    const state = watchedFiles.get(filePath);
+    if (!state) return;
+
+    let stats;
+    try {
+      stats = fs.statSync(filePath);
+    } catch {
+      return;
+    }
+    if (stats.size <= state.position) return;
 
     const stream = fs.createReadStream(filePath, {
-      start: position,
+      start: state.position,
       encoding: "utf8",
     });
 
@@ -269,10 +317,10 @@ function tailFile(filePath) {
       buffer += chunk;
     });
     stream.on("end", () => {
-      position = stats.size;
+      state.position = stats.size;
       const lines = buffer.split("\n");
       for (const line of lines) {
-        const formatted = formatLine(line);
+        const formatted = formatLine(line, filePath);
         if (formatted) {
           console.log(formatted);
           console.log(separator());
@@ -289,31 +337,49 @@ function tailFile(filePath) {
 function watchDir() {
   console.log(`${c.bold}${c.cyan}🔍 ログディレクトリ監視中...${c.reset}`);
   console.log(`${c.dim}   ${LOG_DIR}${c.reset}`);
+  console.log(
+    `${c.dim}   オプション: --history[=N] --no-thinking${c.reset}`
+  );
   console.log(separator());
 
-  // Check for existing file first
-  const existing = findLatestJsonl(LOG_DIR);
-  if (existing) {
-    tailFile(existing);
-    return;
+  // Show history from all existing files if requested
+  const existingFiles = getAllJsonlFiles(LOG_DIR);
+  if (showHistory && existingFiles.length > 0) {
+    printHistory(existingFiles);
   }
 
-  // Wait for directory and file to appear
-  const check = setInterval(() => {
-    const found = findLatestJsonl(LOG_DIR);
-    if (found) {
-      clearInterval(check);
-      tailFile(found);
+  // Start tailing all existing files
+  for (const filePath of existingFiles) {
+    tailFile(filePath);
+  }
+
+  if (existingFiles.length === 0) {
+    console.log(`${c.dim}   ログファイル待機中...${c.reset}`);
+    console.log(separator());
+  }
+
+  // Watch for new files appearing in the directory
+  const checkNew = setInterval(() => {
+    const files = getAllJsonlFiles(LOG_DIR);
+    for (const filePath of files) {
+      if (!watchedFiles.has(filePath)) {
+        console.log(
+          `\n${c.bold}${c.bgCyan}${c.white} NEW SESSION ${c.reset}`
+        );
+        tailFile(filePath);
+      }
     }
   }, 1000);
 
-  // Also watch for new files in the directory
+  // Also use fs.watch for faster detection
   if (fs.existsSync(LOG_DIR)) {
     fs.watch(LOG_DIR, (eventType, filename) => {
       if (filename && filename.endsWith(".jsonl")) {
         const filePath = path.join(LOG_DIR, filename);
-        if (fs.existsSync(filePath)) {
-          clearInterval(check);
+        if (!watchedFiles.has(filePath) && fs.existsSync(filePath)) {
+          console.log(
+            `\n${c.bold}${c.bgCyan}${c.white} NEW SESSION ${c.reset}`
+          );
           tailFile(filePath);
         }
       }

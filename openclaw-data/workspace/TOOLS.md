@@ -39,7 +39,7 @@ Skills are shared. Your setup is yours. Keeping them apart means you can update 
 
 Add whatever helps you do your job. This is your cheat sheet.
 
-## Claude Code 連携
+## Claude Code
 
 `exec` ツールで Claude Code をバックグラウンド実行する。完了後、Stop hook が `[Claude Code 完了通知]` をこのチャットに自動送信する。
 
@@ -65,6 +65,19 @@ exec の戻り値は使わない。結果は `[Claude Code 完了通知]` とし
 6. 全ステップ完了まで繰り返す
 
 **重要: ステップ2で必ず応答を終了すること。exec実行後に続けてexecを呼んではならない。**
+
+### 出力ファイルのルール
+
+Claude Code への指示に以下を必ず含めること:
+
+```
+成果物は /home/node/.openclaw/workspace/tmp/YYYYMMDD_HHMMSS/ に保存すること。
+ディレクトリが存在しない場合は作成すること。
+```
+
+`YYYYMMDD_HHMMSS` は実行時のタイムスタンプ（UTC）に置き換える。例: `20260225_043500`
+
+これにより、実行ごとの成果物が分離され、過去の結果を上書きしない。
 
 ### ルール
 

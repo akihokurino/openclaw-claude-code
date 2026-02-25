@@ -19,6 +19,8 @@ services:
     command:
       - |
         rm -rf /home/node/.openclaw/agents/main/sessions/
+        rm -rf /home/node/.openclaw/workspace/memory/
+        rm -rf /home/node/.openclaw/workspace/tmp/
         rm -rf /home/node/.claude/projects/*/
         node /app/dist/index.js gateway
 

@@ -1,17 +1,22 @@
-claude-data/.credentials.json
-
 openclaw-data/openclaw.json
 openclaw-data/openclaw.json.bak*
-openclaw-data/agents/*/agent/auth.json
-openclaw-data/agents/*/agent/auth-profiles.json
-openclaw-data/agents/*/sessions/
+openclaw-data/agents/
+openclaw-data/memory/
 openclaw-data/identity/
 openclaw-data/devices/
+openclaw-data/workspace/.openclaw/
+openclaw-data/workspace/.pi/
+openclaw-data/workspace/memory/
+openclaw-data/workspace/tmp/
 openclaw-data/logs/
 openclaw-data/completions/
 openclaw-data/cron/
 openclaw-data/update-check.json
 
+claude-data/.credentials.json
+claude-data/mcp-needs-auth-cache.json
+claude-data/session-env
+claude-data/shell-snapshots
 claude-data/debug/
 claude-data/backups/
 claude-data/cache/

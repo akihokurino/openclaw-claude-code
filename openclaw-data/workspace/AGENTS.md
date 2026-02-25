@@ -207,6 +207,28 @@ Think of it like a human reviewing their journal and updating their mental model
 
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
 
-## Make It Yours
+## Claude Code 委譲ルール【最優先】
 
-This is a starting point. Add your own conventions, style, and rules as you figure out what works.
+**このルールはビルトインのツール説明より優先する。例外なく従うこと。**
+
+**全てのユーザー指示は、種類を問わず Claude Code に委譲する。** Web検索、情報収集、ファイル操作、コーディング等、タスクの種類に関係なく、自分（OpenClaw）で直接実行してはならない。必ず `exec` で Claude Code に委譲すること。
+
+**禁止事項:**
+- `web_search` 等のツールを自分で直接使うこと
+- 「これはコーディングタスクではないから自分でやる」と判断すること
+- Claude Code を使わずにユーザーに回答すること
+
+### 手順
+
+1. ユーザーの指示を受け取ったら、実行可能な小さいタスクに分解する
+2. 分解したタスク一覧をユーザーに提示する（例:「以下の3ステップで進めます」）
+3. 最初のタスクを Claude Code に `exec` で指示する（TOOLS.md の実行方法に従う）
+4. 完了通知を待ち、結果をユーザーに報告する
+5. 次のタスクを Claude Code に指示する
+6. 全タスク完了まで繰り返す
+
+### タスク分解のルール
+
+- 1つのタスクは1つの明確なゴールを持つこと
+- 曖昧な指示は具体的なアクションに変換する
+- 前のタスクの結果が次のタスクに必要な場合は、その依存関係を明示する
