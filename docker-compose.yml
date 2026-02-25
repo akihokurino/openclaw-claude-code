@@ -14,7 +14,7 @@ services:
       - LANG=ja_JP.UTF-8
       - LANGUAGE=ja_JP:ja
     ports:
-      - "18790:18790"
+      - "18789:18790"
     entrypoint: ["bash", "-c"]
     command:
       - |
